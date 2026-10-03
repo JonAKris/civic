@@ -1,0 +1,25 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+
+# Environments
+.vscode/
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# logs
+*.log
+*.csv
+old_*
+
+# patches
+*.patch
+
+# sample output .html files
+*.html
