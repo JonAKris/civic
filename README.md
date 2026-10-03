@@ -24,10 +24,10 @@ each with report-card metrics.
 ```bash
 # PostGIS (Ubuntu/Debian; use the package matching your Postgres major version)
 sudo apt install postgresql-16-postgis-3
-sudo -u postgres createdb -O jon civic
+sudo -u postgres createdb -O $USER civic
 sudo -u postgres psql -d civic -c "CREATE EXTENSION postgis"   # needs superuser once
 
-cd /home/jon && git clone <this repo> civic && cd civic
+cd /home/$USER && git clone <this repo> civic && cd civic
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env        # fill in keys; leave PG_PASSWORD blank to use ~/.pgpass
@@ -53,8 +53,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA civic GRANT SELECT ON TABLES TO ai_agent;
 Pick times clear of the 19:37 and 22:07 stock jobs:
 
 ```cron
-15 2 * * *   /home/jon/civic/bin/civic_job.bash nightly >> /home/jon/civic/logs/civic.log 2>&1
-15 3 * * 0   /home/jon/civic/bin/civic_job.bash weekly  >> /home/jon/civic/logs/civic.log 2>&1
+15 2 * * *   /home/$USER/civic/bin/civic_job.bash nightly >> /home/$USER/civic/logs/civic.log 2>&1
+15 3 * * 0   /home/$USER/civic/bin/civic_job.bash weekly  >> /home/$USER/civic/logs/civic.log 2>&1
 ```
 
 - **nightly** runs `federal-people`, `house-votes`, `senate-votes` and `state-bills`. All four are incremental and checkpointed in `civic.etl_state`.
