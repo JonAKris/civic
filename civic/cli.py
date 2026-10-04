@@ -185,6 +185,16 @@ def cmd_lookup(address, lat, lon):
             click.echo(f"   DW-NOMINATE: {r['nominate_dim1']:+.3f}  (-1 liberal .. +1 conservative)")
 
 
+@cli.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True,
+              help="0.0.0.0 to allow other machines on your LAN")
+@click.option("--port", default=8080, show_default=True, type=int)
+def cmd_serve(host, port):
+    """Web page: enter an address, see its officials' report cards."""
+    from .web import app
+    app.run(host=host, port=port)
+
+
 @cli.command("check")
 def cmd_check():
     """Data-quality report: seats with no matching boundary, last run of each job."""

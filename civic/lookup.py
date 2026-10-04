@@ -11,14 +11,20 @@ from .net import Client
 GEOCODER = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
 
 
-def geocode(address: str) -> tuple[float, float] | None:
+def geocode_match(address: str) -> tuple[float, float, str] | None:
+    """(lon, lat, matched address as the Census geocoder normalised it) or None."""
     d = Client().json(GEOCODER, params={"address": address, "benchmark": "Public_AR_Current",
                                          "format": "json"})
     matches = ((d or {}).get("result") or {}).get("addressMatches") or []
     if not matches:
         return None
     c = matches[0]["coordinates"]
-    return float(c["x"]), float(c["y"])
+    return float(c["x"]), float(c["y"]), matches[0].get("matchedAddress") or address
+
+
+def geocode(address: str) -> tuple[float, float] | None:
+    m = geocode_match(address)
+    return (m[0], m[1]) if m else None
 
 
 def officials(lon: float, lat: float) -> list[dict]:
