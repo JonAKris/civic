@@ -1,7 +1,8 @@
 """Census TIGER/Line district polygons -> civic.district_boundary (PostGIS).
 
-Congressional districts are one national file; state senate (SLDU) and house (SLDL)
-are one file per state. Zips are cached under DATA_DIR/tiger/<year>/.
+Congressional (CD), state senate (SLDU) and house (SLDL) are each one file per state.
+119th-Congress CDs are published in TIGER2025 (CD_TIGER_YEAR); legislative maps use
+TIGER_YEAR. Zips are cached under DATA_DIR/tiger/<year>/.
 """
 from __future__ import annotations
 
@@ -23,7 +24,8 @@ GEOM_SQL = "ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_GeomFromWKB(%s, 4269))
 TEMPLATE = "(%s, %s, %s, %s, %s, %s, %s, %s, " + GEOM_SQL + ")"
 
 
-def _rows(zip_path, level: str, chamber: str, code_field: str, at_large=()) -> list[dict]:
+def _rows(zip_path, level: str, chamber: str, code_field: str, at_large=(),
+          vintage: int | None = None) -> list[dict]:
     rows = []
     with shapefile.Reader(str(zip_path)) as sf:
         for sr in sf.iterShapeRecords():
@@ -42,37 +44,42 @@ def _rows(zip_path, level: str, chamber: str, code_field: str, at_large=()) -> l
                 "district": norm_district(code, at_large),
                 "geoid": rec["GEOID"],
                 "name": rec.get("NAMELSAD"),
-                "vintage": settings.tiger_year,
+                "vintage": vintage or settings.tiger_year,
                 "geom": psycopg2.Binary(geom.wkb),
             })
     return rows
 
 
 def jobs(states: list[str], congressional: bool = True) -> list[tuple]:
+    """(url, level, chamber, code_field, at_large, vintage) for each file to load."""
     y, base = settings.tiger_year, BASE.format(year=settings.tiger_year)
+    cy, cbase, c = settings.cd_tiger_year, BASE.format(year=settings.cd_tiger_year), settings.congress
     out = []
-    if congressional:
-        c = settings.congress
-        out.append((f"{base}/CD/tl_{y}_us_cd{c}.zip", "federal", "lower", f"CD{c}FP", CD_AT_LARGE))
     for st in states:
         f = STATE_FIPS[st]
+        if congressional:
+            out.append((f"{cbase}/CD/tl_{cy}_{f}_cd{c}.zip", "federal", "lower",
+                        f"CD{c}FP", CD_AT_LARGE, cy))
         for kind, chamber in (("sldu", "upper"), ("sldl", "lower")):
             out.append((f"{base}/{kind.upper()}/tl_{y}_{f}_{kind}.zip", "state", chamber,
-                        f"{kind.upper()}ST", ()))
+                        f"{kind.upper()}ST", (), y))
     return out
 
 
 def run(states: list[str] | None = None, congressional: bool = True) -> None:
     states = states or settings.states
     client = Client(min_interval=0.5)
-    ddir = settings.data_dir / "tiger" / str(settings.tiger_year)
     with run_log("boundaries") as stats:
-        for url, level, chamber, field, at_large in jobs(states, congressional):
+        for url, level, chamber, field, at_large, vintage in jobs(states, congressional):
+            ddir = settings.data_dir / "tiger" / str(vintage)
             path = client.download(url, ddir / url.rsplit("/", 1)[1], ok404=True)
-            if path is None:          # e.g. Nebraska (unicameral) has no SLDL file
-                log.info("not published, skipping: %s", url)
+            if path is None:
+                if level == "federal":   # every state has one -- missing means a bad URL/year
+                    raise RuntimeError(f"congressional district file not found: {url} "
+                                       "(check CD_TIGER_YEAR / CONGRESS in .env)")
+                log.info("not published, skipping: %s", url)   # e.g. Nebraska has no SLDL
                 continue
-            rows = _rows(path, level, chamber, field, at_large)
+            rows = _rows(path, level, chamber, field, at_large, vintage)
             with connect() as conn, conn.cursor() as cur:
                 n = upsert(cur, "civic.district_boundary", rows,
                            ["level", "chamber", "geoid", "vintage"],

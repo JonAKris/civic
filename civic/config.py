@@ -28,6 +28,8 @@ class Settings:
 
         self.congress = int(os.getenv("CONGRESS", "119"))
         self.tiger_year = int(os.getenv("TIGER_YEAR", "2024"))
+        # 119th-Congress district maps first appear in TIGER2025 (per-state files)
+        self.cd_tiger_year = int(os.getenv("CD_TIGER_YEAR", "2025"))
         self.states = parse_states(os.getenv("STATES", "IL"))
         data_dir = Path(os.getenv("DATA_DIR", str(ROOT / "data")))
         self.data_dir = data_dir if data_dir.is_absolute() else ROOT / data_dir
