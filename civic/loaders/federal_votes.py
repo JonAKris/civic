@@ -106,21 +106,21 @@ def run_house(max_misses: int = 3) -> None:
             while misses < max_misses:
                 url = HOUSE_URL.format(year=year, roll=roll)
                 r = client.get(url, ok404=True)
-                if r is None:
+                # the Clerk answers a not-yet-held roll call with a 200 HTML page, not a 404,
+                # so treat "no XML" exactly like a 404: count a miss and move to the next roll
+                if r is None or b"<vote-metadata>" not in r.content[:2000]:
+                    log.debug("house: no roll-call XML at %s", url)
                     misses += 1
                     roll += 1
                     continue
                 misses = 0
-                if b"<vote-metadata>" not in r.content[:2000]:
-                    log.info("house: no roll-call XML at %s", url)
-                    continue   # or `continue` if the loop shouldn't end here
                 ev, casts = parse_house(r.content, url)
                 with conn.cursor() as cur:
                     stats["rows"] += _save(cur, ev, casts)
                     set_checkpoint(cur, key, {"last_roll": roll})
                 conn.commit()
                 roll += 1
-            log.info("house %s: through roll %d", year, roll - 1 - max_misses)
+            log.info("house %s: through roll %d", year, get_checkpoint(key).get("last_roll", 0))
 
 
 def run_senate() -> None:
