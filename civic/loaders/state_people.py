@@ -34,13 +34,17 @@ def person_row(doc: dict, state: str, today: str | None = None) -> dict | None:
                   if not p.get("end_date") or str(p["end_date"]) >= today), None)
     links = doc.get("links") or []
     pid = doc["id"]
+    district = role.get("district")
+    # Idaho elects two House members per legislative district (seats 10A/10B); TIGER maps '10'
+    if state == "ID" and role["type"] == "lower" and district:
+        district = str(district).rstrip("ABab")
     return {
         "politician_id": pid,
         "level": "state",
         # Nebraska's unicameral 'legislature' maps to TIGER's upper-chamber (SLDU) file
         "chamber": "lower" if role["type"] == "lower" else "upper",
         "state": state,
-        "district": norm_district(role.get("district")),
+        "district": norm_district(district),
         "full_name": doc.get("name"),
         "first_name": doc.get("given_name"),
         "last_name": doc.get("family_name"),

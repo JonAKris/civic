@@ -36,6 +36,8 @@ def run(member: str | None = None, min_interval: float = 3.7) -> None:
                                    params={"api_key": key, "per_page": 10, "sort": "-cycle"},
                                    ok404=True) or {}
                 for r in data.get("results") or []:
+                    if r.get("cycle") is None:     # occasional placeholder row with no cycle
+                        continue
                     rows.append({
                         "politician_id": m["politician_id"],
                         "fec_candidate_id": cid,

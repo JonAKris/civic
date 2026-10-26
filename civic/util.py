@@ -1,6 +1,8 @@
 """Small pure helpers: state codes, district/party/vote normalization."""
 from __future__ import annotations
 
+import re
+
 STATE_FIPS = {
     "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08", "CT": "09",
     "DE": "10", "DC": "11", "FL": "12", "GA": "13", "HI": "15", "ID": "16", "IL": "17",
@@ -11,7 +13,9 @@ STATE_FIPS = {
     "TN": "47", "TX": "48", "UT": "49", "VT": "50", "VA": "51", "WA": "53", "WV": "54",
     "WI": "55", "WY": "56",
 }
-FIPS_STATE = {v: k for k, v in STATE_FIPS.items()}
+# territories send a non-voting House delegate; only their congressional map is loaded
+TERRITORY_FIPS = {"AS": "60", "GU": "66", "MP": "69", "PR": "72", "VI": "78"}
+FIPS_STATE = {v: k for k, v in {**STATE_FIPS, **TERRITORY_FIPS}.items()}
 ALL_STATES = sorted(s for s in STATE_FIPS if s != "DC")
 
 # Congressional at-large codes: 0 in congress-legislators, 00/98 in TIGER (98 = DC delegate).
@@ -31,7 +35,12 @@ def parse_states(spec: str | None) -> list[str]:
 
 
 def norm_district(d, at_large: tuple = ()) -> str | None:
-    """'007' -> '7'; at-large codes -> 'AL'; named districts upper-cased as-is."""
+    """'007' -> '7'; at-large codes -> 'AL'; named districts upper-cased and canonicalized.
+
+    Named districts must come out the same from Open States and TIGER: '01A' -> '1A',
+    'Belknap 01' -> 'BELKNAP 1', 'Bristol and Norfolk' / 'Bristol-Norfolk' -> 'BRISTOL-NORFOLK',
+    'South East' -> 'SOUTHEAST'.
+    """
     if d is None:
         return None
     s = str(d).strip()
@@ -40,7 +49,10 @@ def norm_district(d, at_large: tuple = ()) -> str | None:
     if s.isdigit():
         n = int(s)
         return "AL" if n in at_large else str(n)
-    return s.upper()
+    s = re.sub(r"\s*(?:,|-|\bAND\b)\s*", "-", s.upper())
+    s = re.sub(r"\b(NORTH|SOUTH) (EAST|WEST)\b", r"\1\2", s)
+    s = re.sub(r"\b0+(?=\w)", "", s)
+    return re.sub(r"\s+", " ", s)
 
 
 def party_code(name: str | None) -> str | None:

@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 
+from requests.exceptions import RetryError
+
 from ..config import settings
 from ..db import connect, get_checkpoint, run_log, set_checkpoint, upsert
 from ..net import Client
@@ -109,37 +111,43 @@ def run(states: list[str] | None = None, session: str | None = None,
     budget = max_requests or settings.openstates_max_requests
     client = Client(min_interval=settings.openstates_min_interval, headers={"X-API-KEY": key})
     with run_log("state_bills") as stats:
-        sessions = {s: session for s in states} if session else current_sessions(client)
-        for st in states:
-            sess = sessions.get(st)
-            if not sess:
-                log.warning("no session found for %s", st)
-                continue
-            ck_key = f"openstates:{st}:{sess}"
-            since, page = get_checkpoint(ck_key).get("since"), 1
-            while True:
-                if client.requests >= budget:
-                    stats["message"] = f"request budget ({budget}) reached in {st}; resumes next run"
-                    log.warning(stats["message"])
-                    return
-                params = {"jurisdiction": jurisdiction_id(st), "session": sess,
-                          "include": ["sponsorships", "votes", "actions"],
-                          "sort": "updated_asc", "per_page": 20, "page": page}
-                if since:
-                    params["updated_since"] = since
-                data = client.json(f"{API}/bills", params=params)
-                results = data.get("results") or []
-                if not results:
-                    break
-                newest = max(b.get("updated_at") or "" for b in results)
-                with connect() as conn, conn.cursor() as cur:
-                    _save_page(cur, st, results)
-                    set_checkpoint(cur, ck_key, {"since": newest})
-                stats["rows"] += len(results)
-                if page >= (data.get("pagination") or {}).get("max_page", page):
-                    break
-                if newest == since:      # a whole page shares one timestamp: step forward
-                    page += 1
-                else:
-                    since, page = newest, 1
-            log.info("state_bills %s %s: up to date", st, sess)
+        try:
+            sessions = {s: session for s in states} if session else current_sessions(client)
+            for st in states:
+                sess = sessions.get(st)
+                if not sess:
+                    log.warning("no session found for %s", st)
+                    continue
+                ck_key = f"openstates:{st}:{sess}"
+                since, page = get_checkpoint(ck_key).get("since"), 1
+                while True:
+                    if client.requests >= budget:
+                        stats["message"] = f"request budget ({budget}) reached in {st}; resumes next run"
+                        log.warning(stats["message"])
+                        return
+                    params = {"jurisdiction": jurisdiction_id(st), "session": sess,
+                              "include": ["sponsorships", "votes", "actions"],
+                              "sort": "updated_asc", "per_page": 20, "page": page}
+                    if since:
+                        params["updated_since"] = since
+                    data = client.json(f"{API}/bills", params=params)
+                    results = data.get("results") or []
+                    if not results:
+                        break
+                    newest = max(b.get("updated_at") or "" for b in results)
+                    with connect() as conn, conn.cursor() as cur:
+                        _save_page(cur, st, results)
+                        set_checkpoint(cur, ck_key, {"since": newest})
+                    stats["rows"] += len(results)
+                    if page >= (data.get("pagination") or {}).get("max_page", page):
+                        break
+                    if newest == since:      # a whole page shares one timestamp: step forward
+                        page += 1
+                    else:
+                        since, page = newest, 1
+                log.info("state_bills %s %s: up to date", st, sess)
+        except RetryError as e:      # free-tier daily quota used up: not a failure, just wait
+            if "429" not in str(e):
+                raise
+            stats["message"] = "Open States quota exhausted (HTTP 429); resumes next run"
+            log.warning(stats["message"])

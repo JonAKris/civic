@@ -7,6 +7,7 @@ TIGER_YEAR. Zips are cached under DATA_DIR/tiger/<year>/.
 from __future__ import annotations
 
 import logging
+import re
 
 import psycopg2
 import shapefile                      # pyshp (reads .zip directly)
@@ -15,13 +16,17 @@ from shapely.geometry import shape
 from ..config import settings
 from ..db import connect, run_log, upsert
 from ..net import Client
-from ..util import CD_AT_LARGE, FIPS_STATE, STATE_FIPS, norm_district
+from ..util import CD_AT_LARGE, FIPS_STATE, STATE_FIPS, TERRITORY_FIPS, norm_district
 
 log = logging.getLogger(__name__)
 BASE = "https://www2.census.gov/geo/tiger/TIGER{year}"
 GEOM_SQL = "ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_GeomFromWKB(%s, 4269)), 3))"
 # column order must match the dict built in _rows()
 TEMPLATE = "(%s, %s, %s, %s, %s, %s, %s, %s, " + GEOM_SQL + ")"
+# TIGER codes these maps with opaque ids (D01, A-1, ...) while Open States uses the district
+# names, so derive the district from NAMELSAD instead
+NAME_KEYED = {("MA", "upper"), ("MA", "lower"), ("NH", "lower"), ("VT", "upper"), ("VT", "lower")}
+NAME_NOISE = re.compile(r"^State House District\s+|\s+(?:State House |Senatorial )?District$")
 
 
 def _rows(zip_path, level: str, chamber: str, code_field: str, at_large=(),
@@ -35,6 +40,8 @@ def _rows(zip_path, level: str, chamber: str, code_field: str, at_large=(),
             # skip territories, blanks, and 'ZZZ' (water / undefined areas)
             if not st or not code or code.upper().startswith("ZZ") or sr.shape.shapeType == 0:
                 continue
+            if level == "state" and (st, chamber) in NAME_KEYED and rec.get("NAMELSAD"):
+                code = NAME_NOISE.sub("", rec["NAMELSAD"])
             geom = shape(sr.shape.__geo_interface__)
             rows.append({
                 "level": level,
@@ -55,11 +62,12 @@ def jobs(states: list[str], congressional: bool = True) -> list[tuple]:
     y, base = settings.tiger_year, BASE.format(year=settings.tiger_year)
     cy, cbase, c = settings.cd_tiger_year, BASE.format(year=settings.cd_tiger_year), settings.congress
     out = []
-    for st in states:
-        f = STATE_FIPS[st]
-        if congressional:
+    if congressional:                     # DC and territories have a House delegate, no legislature maps
+        for f in [STATE_FIPS[st] for st in states] + [STATE_FIPS["DC"], *TERRITORY_FIPS.values()]:
             out.append((f"{cbase}/CD/tl_{cy}_{f}_cd{c}.zip", "federal", "lower",
                         f"CD{c}FP", CD_AT_LARGE, cy))
+    for st in states:
+        f = STATE_FIPS[st]
         for kind, chamber in (("sldu", "upper"), ("sldl", "lower")):
             out.append((f"{base}/{kind.upper()}/tl_{y}_{f}_{kind}.zip", "state", chamber,
                         f"{kind.upper()}ST", (), y))

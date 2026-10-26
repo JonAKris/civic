@@ -33,6 +33,11 @@ def test_util():
     assert norm_district("98", CD_AT_LARGE) == "AL"
     assert norm_district("98") == "98"                 # PA House district 98 stays 98
     assert norm_district("Chittenden-1") == "CHITTENDEN-1"
+    assert norm_district("01A") == "1A" and norm_district("00A") == "A"     # MN/MD/ND, AK
+    assert norm_district("Belknap 01") == norm_district("BELKNAP 1")
+    assert (norm_district("Berkshire-Hampden-Franklin-Hampshire")
+            == norm_district("BERKSHIRE, HAMPDEN, FRANKLIN AND HAMPSHIRE"))
+    assert norm_district("Chittenden South East") == "CHITTENDEN SOUTHEAST"
     assert party_code("Democratic-Farmer-Labor") == "D" and party_code("Republican") == "R"
     assert norm_option("Aye") == "yes" and norm_option("Nay") == "no"
     assert norm_option("Not Voting") == "not_voting" and norm_option("excused") == "not_voting"
